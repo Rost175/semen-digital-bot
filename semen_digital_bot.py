@@ -96,8 +96,9 @@ def save_to_google_sheets(service_name: str, answers: dict):
             "https://www.googleapis.com/auth/drive"
         ]
 
-        creds = Credentials.from_service_account_file(
-            GOOGLE_CREDENTIALS_FILE,
+        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+        creds = Credentials.from_service_account_info(
+            creds_dict,
             scopes=scopes
         )
 
@@ -133,7 +134,6 @@ def save_to_google_sheets(service_name: str, answers: dict):
 
     except Exception as e:
         print(f"Ошибка записи в Google Sheets: {e}")
-
 
 # ===== ВСПОМОГАТЕЛЬНОЕ =====
 def nav_keyboard():
