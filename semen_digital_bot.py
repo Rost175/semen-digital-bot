@@ -8,10 +8,11 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ===== НАСТРОЙКИ =====
-BOT_TOKEN = "BOT_TOKEN"
+import os
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_CHAT_ID = 604010998
 
-GOOGLE_SHEETS_ENABLED = True
+GOOGLE_SHEETS_ENABLED = False
 GOOGLE_SHEET_ID = "180_3Ui7u1ELdAqF-y6RJ9PIWGNE7nkSNgwh5aWluZpU"
 GOOGLE_CREDENTIALS_FILE = "google_credentials.json"
 
