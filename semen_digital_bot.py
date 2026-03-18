@@ -1,0 +1,402 @@
+from datetime import datetime
+
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+
+import gspread
+from google.oauth2.service_account import Credentials
+
+# ===== НАСТРОЙКИ =====
+BOT_TOKEN = "BOT_TOKEN"
+OWNER_CHAT_ID = 604010998
+
+GOOGLE_SHEETS_ENABLED = True
+GOOGLE_SHEET_ID = "180_3Ui7u1ELdAqF-y6RJ9PIWGNE7nkSNgwh5aWluZpU"
+GOOGLE_CREDENTIALS_FILE = "google_credentials.json"
+
+BTN_BACK = "⬅️ Назад"
+BTN_MENU = "🏠 Главное меню"
+
+MAIN_MENU = [
+    ["🌐 Создание сайта"],
+    ["🛍 Карточки WB / Ozon"],
+    ["📷 AI обработка фото"],
+    ["🎭 Создать аватар"]
+]
+
+FORMS = {
+    "🌐 Создание сайта": {
+        "service_name": "Создание сайта",
+        "fields": [
+            ("name", "Как вас зовут?"),
+            ("contact", "Ваш контакт? Укажите Telegram, телефон или e-mail."),
+            ("site_type", "Какой сайт нужен?"),
+            ("business", "Чем вы занимаетесь? Кратко опишите ваш бизнес или проект."),
+            ("audience", "Для кого этот сайт? Кто ваша целевая аудитория?"),
+            ("goal", "Какая основная цель сайта? Например: заявки, продажи, портфолио, презентация."),
+            ("examples", "Есть ли сайты, которые вам нравятся? Пришлите ссылку или напишите «нет»."),
+            ("texts", "Есть ли тексты для сайта? Напишите: да / нет / частично."),
+            ("timeline", "Когда нужен запуск сайта?"),
+            ("comment", "Дополнительные пожелания? Если нет — напишите «нет»."),
+        ],
+    },
+    "🛍 Карточки WB / Ozon": {
+        "service_name": "Карточки WB / Ozon",
+        "fields": [
+            ("name", "Как вас зовут?"),
+            ("contact", "Ваш контакт?"),
+            ("market", "Для какого маркетплейса? Напишите: WB / Ozon / оба."),
+            ("product", "Что за товар?"),
+            ("count", "Сколько карточек нужно сделать?"),
+            ("photos", "Есть ли фотографии товара?"),
+            ("tz", "Есть ли техническое задание?"),
+            ("files", "Прикрепите фото товара, ТЗ или референсы. Когда закончите, напишите: ГОТОВО"),
+            ("timeline", "Когда нужен результат?"),
+            ("comment", "Дополнительные пожелания?"),
+        ],
+    },
+    "📷 AI обработка фото": {
+        "service_name": "AI обработка фото",
+        "fields": [
+            ("name", "Как вас зовут?"),
+            ("contact", "Ваш контакт?"),
+            ("object", "Что нужно обработать? Например: товар, портрет, интерьер."),
+            ("count", "Сколько фотографий?"),
+            ("style", "Какой стиль обработки нужен?"),
+            ("files", "Прикрепите фотографии для обработки. Когда закончите, напишите: ГОТОВО"),
+            ("timeline", "Когда нужен результат?"),
+            ("comment", "Дополнительные пожелания?"),
+        ],
+    },
+    "🎭 Создать аватар": {
+        "service_name": "Создание аватара",
+        "fields": [
+            ("name", "Как вас зовут?"),
+            ("contact", "Ваш контакт?"),
+            ("style", "Какой стиль аватара нужен?"),
+            ("use", "Где будет использоваться аватар?"),
+            ("files", "Прикрепите свои фото или референсы. Когда закончите, напишите: ГОТОВО"),
+            ("comment", "Дополнительные пожелания?"),
+        ],
+    },
+}
+
+
+# ===== GOOGLE SHEETS =====
+def save_to_google_sheets(service_name: str, answers: dict):
+    if not GOOGLE_SHEETS_ENABLED:
+        print("Google Sheets отключен")
+        return
+
+    try:
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+
+        creds = Credentials.from_service_account_file(
+            GOOGLE_CREDENTIALS_FILE,
+            scopes=scopes
+        )
+
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+
+        row = [
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            service_name,
+            answers.get("name", ""),
+            answers.get("contact", ""),
+            answers.get("site_type", ""),
+            answers.get("business", ""),
+            answers.get("audience", ""),
+            answers.get("goal", ""),
+            answers.get("examples", ""),
+            answers.get("texts", ""),
+            answers.get("market", ""),
+            answers.get("product", ""),
+            answers.get("count", ""),
+            answers.get("photos", ""),
+            answers.get("tz", ""),
+            answers.get("object", ""),
+            answers.get("style", ""),
+            answers.get("use", ""),
+            answers.get("timeline", ""),
+            answers.get("comment", ""),
+            len(answers.get("files", [])),
+        ]
+
+        sheet.append_row(row)
+        print("Запись в Google Sheets выполнена")
+
+    except Exception as e:
+        print(f"Ошибка записи в Google Sheets: {e}")
+
+
+# ===== ВСПОМОГАТЕЛЬНОЕ =====
+def nav_keyboard():
+    return ReplyKeyboardMarkup(
+        [[BTN_BACK, BTN_MENU]],
+        resize_keyboard=True
+    )
+
+
+def main_menu_keyboard():
+    return ReplyKeyboardMarkup(MAIN_MENU, resize_keyboard=True)
+
+
+async def ask_current_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    service_key = context.user_data["service_key"]
+    question_index = context.user_data["question_index"]
+
+    field_name, question_text = FORMS[service_key]["fields"][question_index]
+    await update.message.reply_text(question_text, reply_markup=nav_keyboard())
+
+
+def build_summary(service_name: str, answers: dict) -> str:
+    labels = {
+        "name": "Имя",
+        "contact": "Контакт",
+        "site_type": "Тип сайта",
+        "business": "Бизнес / проект",
+        "audience": "Целевая аудитория",
+        "goal": "Цель сайта",
+        "examples": "Примеры сайтов",
+        "texts": "Тексты",
+        "market": "Маркетплейс",
+        "product": "Товар",
+        "count": "Количество",
+        "photos": "Фото товара",
+        "tz": "Техническое задание",
+        "object": "Что обработать",
+        "style": "Стиль",
+        "use": "Где будет использоваться",
+        "timeline": "Сроки",
+        "comment": "Дополнительные пожелания",
+        "files": "Вложения",
+    }
+
+    order = [
+        "name",
+        "contact",
+        "site_type",
+        "business",
+        "audience",
+        "goal",
+        "examples",
+        "texts",
+        "market",
+        "product",
+        "count",
+        "photos",
+        "tz",
+        "object",
+        "style",
+        "use",
+        "timeline",
+        "comment",
+        "files",
+    ]
+
+    lines = [
+        "Новая заявка",
+        "",
+        f"Услуга: {service_name}",
+        ""
+    ]
+
+    for key in order:
+        if key not in answers and key != "files":
+            continue
+
+        if key == "files":
+            files_count = len(answers.get("files", []))
+            lines.append(f"{labels[key]}: {files_count}")
+        else:
+            lines.append(f"{labels[key]}: {answers.get(key, '')}")
+
+    return "\n".join(lines)
+
+async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answers: dict, service_name: str):
+    files = answers.get("files", [])
+
+    if not files:
+        return
+
+    for item in files:
+        try:
+            if item["type"] == "photo":
+                await context.bot.send_photo(
+                    chat_id=OWNER_CHAT_ID,
+                    photo=item["file_id"],
+                    caption=f"{service_name}: вложение"
+                )
+            elif item["type"] == "document":
+                await context.bot.send_document(
+                    chat_id=OWNER_CHAT_ID,
+                    document=item["file_id"],
+                    caption=f"{service_name}: вложение"
+                )
+        except Exception as e:
+            print(f"Ошибка отправки файла владельцу: {e}")
+
+async def go_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("Главное меню:", reply_markup=main_menu_keyboard())
+
+
+# ===== КОМАНДЫ =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text(
+        "Здравствуйте! Я помогу оформить заявку.",
+        reply_markup=main_menu_keyboard()
+    )
+
+
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        await context.bot.send_message(OWNER_CHAT_ID, "Тестовое сообщение от бота.")
+        await update.message.reply_text("Тест отправлен.")
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка отправки: {e}")
+
+
+# ===== ОСНОВНОЙ ОБРАБОТЧИК =====
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+        # обработка загрузки файлов/фото
+    if "service_key" in context.user_data:
+        service_key = context.user_data["service_key"]
+        question_index = context.user_data.get("question_index", 0)
+
+        if question_index < len(FORMS[service_key]["fields"]):
+            field_name, _ = FORMS[service_key]["fields"][question_index]
+
+            if field_name == "files":
+                if "answers" not in context.user_data:
+                    context.user_data["answers"] = {}
+
+                if "files" not in context.user_data["answers"]:
+                    context.user_data["answers"]["files"] = []
+
+                if update.message.photo:
+                    photo = update.message.photo[-1]
+                    context.user_data["answers"]["files"].append({
+                        "type": "photo",
+                        "file_id": photo.file_id
+                    })
+                    await update.message.reply_text("Фото добавлено. Можете отправить ещё или напишите: ГОТОВО")
+                    return
+
+                if update.message.document:
+                    context.user_data["answers"]["files"].append({
+                        "type": "document",
+                        "file_id": update.message.document.file_id
+                    })
+                    await update.message.reply_text("Файл добавлен. Можете отправить ещё или напишите: ГОТОВО")
+                    return
+
+                if text and text.strip().upper() == "ГОТОВО":
+                    # даже если файлов нет, поле files уже существует как []
+                    context.user_data["question_index"] += 1
+
+                    if context.user_data["question_index"] >= len(FORMS[service_key]["fields"]):
+                        service_name = context.user_data["service_name"]
+                        answers = context.user_data["answers"]
+
+                        message = build_summary(service_name, answers)
+
+                        try:
+                            await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
+                            await send_uploaded_files_to_owner(context, answers, service_name)
+                            save_to_google_sheets(service_name, answers)
+
+                            await update.message.reply_text(
+                                "Спасибо! Ваша заявка отправлена.",
+                                reply_markup=main_menu_keyboard()
+                            )
+                        except Exception as e:
+                            await update.message.reply_text(f"Не удалось отправить заявку: {e}")
+
+                        context.user_data.clear()
+                        return
+
+                    await ask_current_question(update, context)
+                    return
+    # Главное меню
+    if text == BTN_MENU:
+        await go_main_menu(update, context)
+        return
+
+    # Старт новой анкеты
+    if text in FORMS:
+        context.user_data.clear()
+        context.user_data["service_key"] = text
+        context.user_data["service_name"] = FORMS[text]["service_name"]
+        context.user_data["question_index"] = 0
+        context.user_data["answers"] = {}
+        await ask_current_question(update, context)
+        return
+
+    # Если анкета ещё не выбрана
+    if "service_key" not in context.user_data:
+        await update.message.reply_text(
+            "Пожалуйста, выберите услугу кнопкой ниже.",
+            reply_markup=main_menu_keyboard()
+        )
+        return
+
+    # Назад
+    if text == BTN_BACK:
+        if context.user_data["question_index"] > 0:
+            context.user_data["question_index"] -= 1
+            service_key = context.user_data["service_key"]
+            field_name, _ = FORMS[service_key]["fields"][context.user_data["question_index"]]
+            context.user_data["answers"].pop(field_name, None)
+        await ask_current_question(update, context)
+        return
+
+    # Сохраняем текущий ответ
+    service_key = context.user_data["service_key"]
+    question_index = context.user_data["question_index"]
+    field_name, _ = FORMS[service_key]["fields"][question_index]
+
+    context.user_data["answers"][field_name] = text
+
+    # Переходим к следующему вопросу
+    context.user_data["question_index"] += 1
+
+    # Если вопросы закончились
+    if context.user_data["question_index"] >= len(FORMS[service_key]["fields"]):
+        service_name = context.user_data["service_name"]
+        answers = context.user_data["answers"]
+
+        message = build_summary(service_name, answers)
+
+        try:
+            await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
+            save_to_google_sheets(service_name, answers)
+            await update.message.reply_text(
+                "Спасибо! Ваша заявка отправлена.",
+                reply_markup=main_menu_keyboard()
+            )
+        except Exception as e:
+            await update.message.reply_text(f"Не удалось отправить заявку: {e}")
+
+        context.user_data.clear()
+        return
+
+    # Иначе спрашиваем следующий вопрос
+    await ask_current_question(update, context)
+
+
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("test", test))
+app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle))
+
+print("БОТ ЗАПУЩЕН")
+app.run_polling()
