@@ -1,3 +1,5 @@
+import os
+import json
 from datetime import datetime
 
 from telegram import Update, ReplyKeyboardMarkup
@@ -7,14 +9,12 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import gspread
 from google.oauth2.service_account import Credentials
 
-# ===== НАСТРОЙКИ =====
-import os
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_CHAT_ID = 604010998
+OWNER_CHAT_ID = int(os.getenv("OWNER_CHAT_ID", "604010998"))
 
-GOOGLE_SHEETS_ENABLED = False
-GOOGLE_SHEET_ID = "180_3Ui7u1ELdAqF-y6RJ9PIWGNE7nkSNgwh5aWluZpU"
-GOOGLE_CREDENTIALS_FILE = "google_credentials.json"
+GOOGLE_SHEETS_ENABLED = os.getenv("GOOGLE_SHEETS_ENABLED", "false").lower() == "true"
+GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 
 BTN_BACK = "⬅️ Назад"
 BTN_MENU = "🏠 Главное меню"
