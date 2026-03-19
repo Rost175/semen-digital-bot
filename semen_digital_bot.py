@@ -340,12 +340,16 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    if "service_key" in context.user_data:
+print("STEP:", context.user_data.get("question_index"))
+print("FIELD:", context.user_data.get("service_key"))
+
+if "service_key" in context.user_data:
         service_key = context.user_data["service_key"]
         question_index = context.user_data.get("question_index", 0)
 
         if question_index < len(FORMS[service_key]["fields"]):
             field_name, _ = FORMS[service_key]["fields"][question_index]
+            print("CURRENT FIELD:", field_name)
 
             if field_name == "files":
                 if "answers" not in context.user_data:
