@@ -343,8 +343,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text if update.message.text else ""
 
-    print("STEP:", context.user_data.get("question_index"))
-    print("FIELD:", context.user_data.get("service_key"))
+    print("DEBUG_1 HANDLE CALLED")
+    print("DEBUG_2 TEXT:", text)
+    print("DEBUG_3 PHOTO:", bool(update.message.photo))
+    print("DEBUG_4 DOC:", bool(update.message.document))
 
     if "service_key" in context.user_data:
         service_key = context.user_data["service_key"]
