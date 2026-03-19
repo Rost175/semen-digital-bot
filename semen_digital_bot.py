@@ -316,17 +316,31 @@ async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answe
     for item in files:
         try:
             if item["type"] == "photo":
-                await context.bot.send_photo(
-                    chat_id=OWNER_CHAT_ID,
-                    photo=item["file_id"],
-                    caption=f"{service_name}: вложение"
-                )
+                if item.get("file_id"):
+                    await context.bot.send_photo(
+                        chat_id=OWNER_CHAT_ID,
+                        photo=item["file_id"],
+                        caption=f"{service_name}: вложение"
+                    )
+                elif item.get("link"):
+                    await context.bot.send_message(
+                        chat_id=OWNER_CHAT_ID,
+                        text=f"{service_name}: фото\n{item['link']}"
+                    )
+
             elif item["type"] == "document":
-                await context.bot.send_document(
-                    chat_id=OWNER_CHAT_ID,
-                    document=item["file_id"],
-                    caption=f"{service_name}: вложение"
-                )
+                if item.get("file_id"):
+                    await context.bot.send_document(
+                        chat_id=OWNER_CHAT_ID,
+                        document=item["file_id"],
+                        caption=f"{service_name}: вложение"
+                    )
+                elif item.get("link"):
+                    await context.bot.send_message(
+                        chat_id=OWNER_CHAT_ID,
+                        text=f"{service_name}: документ\n{item['link']}"
+                    )
+
         except Exception as e:
             print(f"Ошибка отправки файла владельцу: {e}")
 
@@ -504,5 +518,4 @@ app.run_polling()
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден")
-print("БОТ ЗАПУЩЕН")
 app.run_polling()
