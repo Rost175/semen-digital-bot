@@ -391,8 +391,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     })
 
                     await update.message.reply_text(
-                        f"Файл принят ✅ Сейчас вложений: {len(files)}\n"
-                        f"Можете отправить ещё или написать: ГОТОВО"
+                        "DEBUG_START_V1",
+                        reply_markup=main_menu_keyboard()
                     )
                     return
 
