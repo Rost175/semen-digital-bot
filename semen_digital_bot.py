@@ -350,7 +350,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if question_index < len(FORMS[service_key]["fields"]):
             field_name, _ = FORMS[service_key]["fields"][question_index]
             print("CURRENT FIELD:", field_name)
-
+            print("PHOTO:", bool(update.message.photo))
+            print("DOC:", bool(update.message.document))
+            
             if field_name == "files":
                 if "answers" not in context.user_data:
                     context.user_data["answers"] = {}
