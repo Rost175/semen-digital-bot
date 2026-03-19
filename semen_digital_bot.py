@@ -400,6 +400,10 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===== ОСНОВНОЙ ОБРАБОТЧИК =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+
+    print("PHOTO:", bool(update.message.photo))
+    print("DOC:", bool(update.message.document))
+    
         # обработка загрузки файлов/фото
     if "service_key" in context.user_data:
         service_key = context.user_data["service_key"]
@@ -552,16 +556,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Иначе спрашиваем следующий вопрос
     await ask_current_question(update, context)
-
-
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("test", test))
-app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle))
-
-print("БОТ ЗАПУЩЕН")
-app.run_polling()
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден")
