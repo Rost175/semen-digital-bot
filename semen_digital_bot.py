@@ -364,23 +364,31 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     context.user_data["answers"]["files"] = []
 
                 if update.message.photo or update.message.document:
-                    photo = update.message.photo[-1]
-                    telegram_file = await context.bot.get_file(photo.file_id)
-
+                    if update.message.photo:
+                        photo = update.message.photo[-1]
+                        file_id = photo.file_id
+                        file_name = f"{file_id}.jpg"
+                    else:
+                        doc = update.message.document
+                        file_id = doc.file_id
+                        file_name = doc.file_name if doc.file_name else f"{file_id}.bin"
+                
+                    telegram_file = await context.bot.get_file(file_id)
+                
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                         temp_path = tmp.name
-
+                
                     await telegram_file.download_to_drive(temp_path)
-                    drive_link = upload_file_to_drive(temp_path, f"{photo.file_id}.jpg")
+                    drive_link = upload_file_to_drive(temp_path, file_name)
                     os.remove(temp_path)
-
+                
                     context.user_data["answers"]["files"].append({
-                        "type": "photo",
-                        "file_id": photo.file_id,
+                        "type": "photo" if update.message.photo else "document",
+                        "file_id": file_id,
                         "link": drive_link
                     })
-
-                    await update.message.reply_text("Фото загружено в Drive ✅")
+                
+                    await update.message.reply_text("Файл загружен в Drive ✅")
                     return
 
                 if update.message.document:
