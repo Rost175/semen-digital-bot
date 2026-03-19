@@ -340,10 +340,10 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-print("STEP:", context.user_data.get("question_index"))
-print("FIELD:", context.user_data.get("service_key"))
+    print("STEP:", context.user_data.get("question_index"))
+    print("FIELD:", context.user_data.get("service_key"))
 
-if "service_key" in context.user_data:
+    if "service_key" in context.user_data:
         service_key = context.user_data["service_key"]
         question_index = context.user_data.get("question_index", 0)
 
