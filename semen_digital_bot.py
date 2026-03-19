@@ -9,25 +9,27 @@ from google.oauth2.service_account import Credentials
 
 # ===== НАСТРОЙКИ =====
 import os
+import json
+import tempfile
 from datetime import datetime
 
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 import gspread
 from google.oauth2.service_account import Credentials
-
-import tempfile
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+
+# ===== НАСТРОЙКИ =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_CHAT_ID = int(os.getenv("OWNER_CHAT_ID", "604010998"))
 
 GOOGLE_SHEETS_ENABLED = os.getenv("GOOGLE_SHEETS_ENABLED", "false").lower() == "true"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
-GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
 
 BTN_BACK = "⬅️ Назад"
 BTN_MENU = "🏠 Главное меню"
@@ -168,6 +170,44 @@ def upload_file_to_drive(file_path, file_name):
 
     return f"https://drive.google.com/file/d/{file_id}/view"
 
+def get_google_credentials():
+    if not GOOGLE_CREDENTIALS_JSON:
+        raise ValueError("GOOGLE_CREDENTIALS_JSON не задан")
+
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
+    return Credentials.from_service_account_info(creds_dict, scopes=scopes)
+
+
+def upload_file_to_drive(file_path, file_name):
+    creds = get_google_credentials()
+    service = build("drive", "v3", credentials=creds)
+
+    file_metadata = {"name": file_name}
+    if GOOGLE_DRIVE_FOLDER_ID:
+        file_metadata["parents"] = [GOOGLE_DRIVE_FOLDER_ID]
+
+    media = MediaFileUpload(file_path, resumable=True)
+
+    created = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id"
+    ).execute()
+
+    file_id = created["id"]
+
+    service.permissions().create(
+        fileId=file_id,
+        body={"role": "reader", "type": "anyone"}
+    ).execute()
+
+    return f"https://drive.google.com/file/d/{file_id}/view"
+
 # ===== GOOGLE SHEETS =====
 def save_to_google_sheets(service_name: str, answers: dict):
     if not GOOGLE_SHEETS_ENABLED:
@@ -175,20 +215,12 @@ def save_to_google_sheets(service_name: str, answers: dict):
         return
 
     try:
-        scopes = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ]
-
-        creds = Credentials.from_service_account_file(
-            GOOGLE_CREDENTIALS_FILE,
-            scopes=scopes
-        )
-
+        creds = get_google_credentials()
         client = gspread.authorize(creds)
         sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
 
         files_data = answers.get("files", [])
+        files_count = len(files_data)
         files_text = "; ".join([item.get("link", "") for item in files_data if item.get("link")])
 
         row = [
@@ -212,7 +244,7 @@ def save_to_google_sheets(service_name: str, answers: dict):
             answers.get("use", ""),
             answers.get("timeline", ""),
             answers.get("comment", ""),
-            len(answers.get("files", [])),
+            files_count,
             files_text,
         ]
 
@@ -221,8 +253,7 @@ def save_to_google_sheets(service_name: str, answers: dict):
 
     except Exception as e:
         print(f"Ошибка записи в Google Sheets: {e}")
-
-
+        
 # ===== ВСПОМОГАТЕЛЬНОЕ =====
 def nav_keyboard():
     return ReplyKeyboardMarkup(
@@ -315,31 +346,17 @@ async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answe
 
     for item in files:
         try:
-            if item["type"] == "photo":
-                if item.get("file_id"):
-                    await context.bot.send_photo(
-                        chat_id=OWNER_CHAT_ID,
-                        photo=item["file_id"],
-                        caption=f"{service_name}: вложение"
-                    )
-                elif item.get("link"):
-                    await context.bot.send_message(
-                        chat_id=OWNER_CHAT_ID,
-                        text=f"{service_name}: фото\n{item['link']}"
-                    )
+            if item["type"] == "photo" and item.get("link"):
+                await context.bot.send_message(
+                    chat_id=OWNER_CHAT_ID,
+                    text=f"{service_name}: фото\n{item['link']}"
+                )
 
-            elif item["type"] == "document":
-                if item.get("file_id"):
-                    await context.bot.send_document(
-                        chat_id=OWNER_CHAT_ID,
-                        document=item["file_id"],
-                        caption=f"{service_name}: вложение"
-                    )
-                elif item.get("link"):
-                    await context.bot.send_message(
-                        chat_id=OWNER_CHAT_ID,
-                        text=f"{service_name}: документ\n{item['link']}"
-                    )
+            elif item["type"] == "document" and item.get("link"):
+                await context.bot.send_message(
+                    chat_id=OWNER_CHAT_ID,
+                    text=f"{service_name}: документ\n{item['link']}"
+                )
 
         except Exception as e:
             print(f"Ошибка отправки файла владельцу: {e}")
@@ -392,25 +409,39 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         temp_path = tmp.name
 
                     await telegram_file.download_to_drive(temp_path)
-
                     drive_link = upload_file_to_drive(temp_path, f"{photo.file_id}.jpg")
+                    os.remove(temp_path)
 
                     context.user_data["answers"]["files"].append({
                         "type": "photo",
                         "link": drive_link
                     })
 
-                    os.remove(temp_path)
-
                     await update.message.reply_text("Фото загружено в Drive ✅")
                     return
 
+
                 if update.message.document:
+                    doc = update.message.document
+                    telegram_file = await context.bot.get_file(doc.file_id)
+
+                    suffix = ""
+                    if doc.file_name and "." in doc.file_name:
+                        suffix = "." + doc.file_name.split(".")[-1]
+
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        temp_path = tmp.name
+
+                    await telegram_file.download_to_drive(temp_path)
+                    drive_link = upload_file_to_drive(temp_path, doc.file_name or f"{doc.file_id}")
+                    os.remove(temp_path)
+
                     context.user_data["answers"]["files"].append({
                         "type": "document",
-                        "file_id": update.message.document.file_id
+                        "link": drive_link
                     })
-                    await update.message.reply_text("Файл добавлен. Можете отправить ещё или напишите: ГОТОВО")
+
+                    await update.message.reply_text("Файл загружен в Drive ✅")
                     return
 
                 if text and text.strip().upper() == "ГОТОВО":
@@ -518,4 +549,12 @@ app.run_polling()
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден")
+
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("test", test))
+app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle))
+
+print("БОТ ЗАПУЩЕН")
 app.run_polling()
