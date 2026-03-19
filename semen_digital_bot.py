@@ -1,5 +1,3 @@
-import os
-import json
 from datetime import datetime
 
 from telegram import Update, ReplyKeyboardMarkup
@@ -9,12 +7,27 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import gspread
 from google.oauth2.service_account import Credentials
 
+# ===== НАСТРОЙКИ =====
+import os
+from datetime import datetime
+
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+
+import gspread
+from google.oauth2.service_account import Credentials
+
+import tempfile
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_CHAT_ID = int(os.getenv("OWNER_CHAT_ID", "604010998"))
 
 GOOGLE_SHEETS_ENABLED = os.getenv("GOOGLE_SHEETS_ENABLED", "false").lower() == "true"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
-GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google_credentials.json")
 
 BTN_BACK = "⬅️ Назад"
 BTN_MENU = "🏠 Главное меню"
@@ -82,7 +95,78 @@ FORMS = {
         ],
     },
 }
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+import tempfile
 
+GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+
+def upload_file_to_drive(file_path, file_name):
+    scopes = ["https://www.googleapis.com/auth/drive"]
+
+    creds = Credentials.from_service_account_file(
+        GOOGLE_CREDENTIALS_FILE,
+        scopes=scopes
+    )
+
+    service = build("drive", "v3", credentials=creds)
+
+    file_metadata = {
+        "name": file_name,
+        "parents": [GOOGLE_DRIVE_FOLDER_ID]
+    }
+
+    media = MediaFileUpload(file_path, resumable=True)
+
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id"
+    ).execute()
+
+    file_id = file.get("id")
+
+    # делаем файл доступным по ссылке
+    service.permissions().create(
+        fileId=file_id,
+        body={"role": "reader", "type": "anyone"}
+    ).execute()
+
+    return f"https://drive.google.com/file/d/{file_id}/view"
+
+GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+
+def upload_file_to_drive(file_path, file_name):
+    scopes = ["https://www.googleapis.com/auth/drive"]
+
+    creds = Credentials.from_service_account_file(
+        GOOGLE_CREDENTIALS_FILE,
+        scopes=scopes
+    )
+
+    service = build("drive", "v3", credentials=creds)
+
+    file_metadata = {
+        "name": file_name,
+        "parents": [GOOGLE_DRIVE_FOLDER_ID]
+    }
+
+    media = MediaFileUpload(file_path, resumable=True)
+
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id"
+    ).execute()
+
+    file_id = file.get("id")
+
+    service.permissions().create(
+        fileId=file_id,
+        body={"role": "reader", "type": "anyone"}
+    ).execute()
+
+    return f"https://drive.google.com/file/d/{file_id}/view"
 
 # ===== GOOGLE SHEETS =====
 def save_to_google_sheets(service_name: str, answers: dict):
@@ -96,14 +180,16 @@ def save_to_google_sheets(service_name: str, answers: dict):
             "https://www.googleapis.com/auth/drive"
         ]
 
-        creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-        creds = Credentials.from_service_account_info(
-            creds_dict,
+        creds = Credentials.from_service_account_file(
+            GOOGLE_CREDENTIALS_FILE,
             scopes=scopes
         )
 
         client = gspread.authorize(creds)
         sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+
+        files_data = answers.get("files", [])
+        files_text = "; ".join([item.get("link", "") for item in files_data if item.get("link")])
 
         row = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -127,6 +213,7 @@ def save_to_google_sheets(service_name: str, answers: dict):
             answers.get("timeline", ""),
             answers.get("comment", ""),
             len(answers.get("files", [])),
+            files_text,
         ]
 
         sheet.append_row(row)
@@ -134,6 +221,7 @@ def save_to_google_sheets(service_name: str, answers: dict):
 
     except Exception as e:
         print(f"Ошибка записи в Google Sheets: {e}")
+
 
 # ===== ВСПОМОГАТЕЛЬНОЕ =====
 def nav_keyboard():
@@ -284,11 +372,23 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 if update.message.photo:
                     photo = update.message.photo[-1]
+                    telegram_file = await context.bot.get_file(photo.file_id)
+
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                        temp_path = tmp.name
+
+                    await telegram_file.download_to_drive(temp_path)
+
+                    drive_link = upload_file_to_drive(temp_path, f"{photo.file_id}.jpg")
+
                     context.user_data["answers"]["files"].append({
                         "type": "photo",
-                        "file_id": photo.file_id
+                        "link": drive_link
                     })
-                    await update.message.reply_text("Фото добавлено. Можете отправить ещё или напишите: ГОТОВО")
+
+                    os.remove(temp_path)
+
+                    await update.message.reply_text("Фото загружено в Drive ✅")
                     return
 
                 if update.message.document:
@@ -399,5 +499,10 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("test", test))
 app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND, handle))
 
+print("БОТ ЗАПУЩЕН")
+app.run_polling()
+
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не найден")
 print("БОТ ЗАПУЩЕН")
 app.run_polling()
