@@ -390,31 +390,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                     await update.message.reply_text("Файл загружен в Drive ✅")
                     return
-
-                if update.message.document:
-                    doc = update.message.document
-                    telegram_file = await context.bot.get_file(doc.file_id)
-
-                    suffix = ""
-                    if doc.file_name and "." in doc.file_name:
-                        suffix = "." + doc.file_name.split(".")[-1]
-
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                        temp_path = tmp.name
-
-                    await telegram_file.download_to_drive(temp_path)
-                    drive_link = upload_file_to_drive(temp_path, doc.file_name or f"{doc.file_id}")
-                    os.remove(temp_path)
-
-                    context.user_data["answers"]["files"].append({
-                        "type": "document",
-                        "file_id": doc.file_id,
-                        "link": drive_link
-                    })
-
-                    await update.message.reply_text("Файл загружен в Drive ✅")
-                    return
-
+                
                 if text and text.strip().upper() == "ГОТОВО":
                     context.user_data["question_index"] += 1
 
