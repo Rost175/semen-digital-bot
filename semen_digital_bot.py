@@ -14,7 +14,13 @@ import tempfile
 from datetime import datetime
 
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -38,7 +44,7 @@ MAIN_MENU = [
     ["🌐 Создание сайта"],
     ["🛍 Карточки WB / Ozon"],
     ["📷 AI обработка фото"],
-    ["🎭 Создать аватар"]
+    ["🎭 Создать аватар"],
 ]
 
 FORMS = {
@@ -97,93 +103,23 @@ FORMS = {
         ],
     },
 }
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
-import tempfile
 
-GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
 
-def upload_file_to_drive(file_path, file_name):
-    scopes = ["https://www.googleapis.com/auth/drive"]
-
-    creds = Credentials.from_service_account_file(
-        GOOGLE_CREDENTIALS_FILE,
-        scopes=scopes
-    )
-
-    service = build("drive", "v3", credentials=creds)
-
-    file_metadata = {
-        "name": file_name,
-        "parents": [GOOGLE_DRIVE_FOLDER_ID]
-    }
-
-    media = MediaFileUpload(file_path, resumable=True)
-
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id"
-    ).execute()
-
-    file_id = file.get("id")
-
-    # делаем файл доступным по ссылке
-    service.permissions().create(
-        fileId=file_id,
-        body={"role": "reader", "type": "anyone"}
-    ).execute()
-
-    return f"https://drive.google.com/file/d/{file_id}/view"
-
-GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
-
-def upload_file_to_drive(file_path, file_name):
-    scopes = ["https://www.googleapis.com/auth/drive"]
-
-    creds = Credentials.from_service_account_file(
-        GOOGLE_CREDENTIALS_FILE,
-        scopes=scopes
-    )
-
-    service = build("drive", "v3", credentials=creds)
-
-    file_metadata = {
-        "name": file_name,
-        "parents": [GOOGLE_DRIVE_FOLDER_ID]
-    }
-
-    media = MediaFileUpload(file_path, resumable=True)
-
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id"
-    ).execute()
-
-    file_id = file.get("id")
-
-    service.permissions().create(
-        fileId=file_id,
-        body={"role": "reader", "type": "anyone"}
-    ).execute()
-
-    return f"https://drive.google.com/file/d/{file_id}/view"
-
-def get_google_credentials():
+# ===== GOOGLE =====
+def get_google_credentials() -> Credentials:
     if not GOOGLE_CREDENTIALS_JSON:
         raise ValueError("GOOGLE_CREDENTIALS_JSON не задан")
 
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
+        "https://www.googleapis.com/auth/drive",
     ]
 
     creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
     return Credentials.from_service_account_info(creds_dict, scopes=scopes)
 
 
-def upload_file_to_drive(file_path, file_name):
+def upload_file_to_drive(file_path: str, file_name: str) -> str:
     creds = get_google_credentials()
     service = build("drive", "v3", credentials=creds)
 
@@ -208,7 +144,7 @@ def upload_file_to_drive(file_path, file_name):
 
     return f"https://drive.google.com/file/d/{file_id}/view"
 
-# ===== GOOGLE SHEETS =====
+
 def save_to_google_sheets(service_name: str, answers: dict):
     if not GOOGLE_SHEETS_ENABLED:
         print("Google Sheets отключен")
@@ -253,7 +189,8 @@ def save_to_google_sheets(service_name: str, answers: dict):
 
     except Exception as e:
         print(f"Ошибка записи в Google Sheets: {e}")
-        
+
+
 # ===== ВСПОМОГАТЕЛЬНОЕ =====
 def nav_keyboard():
     return ReplyKeyboardMarkup(
@@ -270,7 +207,7 @@ async def ask_current_question(update: Update, context: ContextTypes.DEFAULT_TYP
     service_key = context.user_data["service_key"]
     question_index = context.user_data["question_index"]
 
-    field_name, question_text = FORMS[service_key]["fields"][question_index]
+    _, question_text = FORMS[service_key]["fields"][question_index]
     await update.message.reply_text(question_text, reply_markup=nav_keyboard())
 
 
@@ -338,6 +275,7 @@ def build_summary(service_name: str, answers: dict) -> str:
 
     return "\n".join(lines)
 
+
 async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answers: dict, service_name: str):
     files = answers.get("files", [])
 
@@ -375,6 +313,7 @@ async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answe
         except Exception as e:
             print(f"Ошибка отправки файла владельцу: {e}")
 
+
 async def go_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("Главное меню:", reply_markup=main_menu_keyboard())
@@ -401,10 +340,6 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
-    print("PHOTO:", bool(update.message.photo))
-    print("DOC:", bool(update.message.document))
-    
-        # обработка загрузки файлов/фото
     if "service_key" in context.user_data:
         service_key = context.user_data["service_key"]
         question_index = context.user_data.get("question_index", 0)
@@ -439,7 +374,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text("Фото загружено в Drive ✅")
                     return
 
-
                 if update.message.document:
                     doc = update.message.document
                     telegram_file = await context.bot.get_file(doc.file_id)
@@ -465,7 +399,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
                 if text and text.strip().upper() == "ГОТОВО":
-                    # даже если файлов нет, поле files уже существует как []
                     context.user_data["question_index"] += 1
 
                     if context.user_data["question_index"] >= len(FORMS[service_key]["fields"]):
@@ -491,12 +424,11 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     await ask_current_question(update, context)
                     return
-    # Главное меню
+
     if text == BTN_MENU:
         await go_main_menu(update, context)
         return
 
-    # Старт новой анкеты
     if text in FORMS:
         context.user_data.clear()
         context.user_data["service_key"] = text
@@ -506,7 +438,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_current_question(update, context)
         return
 
-    # Если анкета ещё не выбрана
     if "service_key" not in context.user_data:
         await update.message.reply_text(
             "Пожалуйста, выберите услугу кнопкой ниже.",
@@ -514,7 +445,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Назад
     if text == BTN_BACK:
         if context.user_data["question_index"] > 0:
             context.user_data["question_index"] -= 1
@@ -524,17 +454,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await ask_current_question(update, context)
         return
 
-    # Сохраняем текущий ответ
     service_key = context.user_data["service_key"]
     question_index = context.user_data["question_index"]
     field_name, _ = FORMS[service_key]["fields"][question_index]
 
     context.user_data["answers"][field_name] = text
-
-    # Переходим к следующему вопросу
     context.user_data["question_index"] += 1
 
-    # Если вопросы закончились
     if context.user_data["question_index"] >= len(FORMS[service_key]["fields"]):
         service_name = context.user_data["service_name"]
         answers = context.user_data["answers"]
@@ -543,7 +469,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
+            await send_uploaded_files_to_owner(context, answers, service_name)
             save_to_google_sheets(service_name, answers)
+
             await update.message.reply_text(
                 "Спасибо! Ваша заявка отправлена.",
                 reply_markup=main_menu_keyboard()
@@ -554,8 +482,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return
 
-    # Иначе спрашиваем следующий вопрос
     await ask_current_question(update, context)
+
 
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не найден")
@@ -568,4 +496,3 @@ app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.
 
 print("БОТ ЗАПУЩЕН")
 app.run_polling()
-
