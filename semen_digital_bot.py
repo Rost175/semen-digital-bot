@@ -359,7 +359,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if field_name == "files":
                 answers = context.user_data.setdefault("answers", {})
                 files = answers.setdefault("files", [])
-            
+
                 # 1. Сначала ловим фото/документ
                 if update.message.photo or update.message.document:
                     if update.message.photo:
@@ -372,56 +372,56 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         file_id = doc.file_id
                         file_name = doc.file_name if doc.file_name else f"{file_id}.bin"
                         file_type = "document"
-            
+
                     telegram_file = await context.bot.get_file(file_id)
-            
+
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                         temp_path = tmp.name
-            
+
                     await telegram_file.download_to_drive(temp_path)
                     drive_link = upload_file_to_drive(temp_path, file_name)
                     os.remove(temp_path)
-            
+
                     files.append({
                         "type": file_type,
                         "file_id": file_id,
                         "link": drive_link
                     })
-            
+
                     await update.message.reply_text(
                         f"Файл принят ✅ Сейчас вложений: {len(files)}\n"
                         f"Можете отправить ещё или написать: ГОТОВО"
                     )
                     return
-            
+
                 # 2. Если пользователь закончил загрузку
                 if text and text.strip().upper() == "ГОТОВО":
                     context.user_data["question_index"] += 1
-            
+
                     if context.user_data["question_index"] >= len(FORMS[service_key]["fields"]):
                         service_name = context.user_data["service_name"]
                         answers = context.user_data["answers"]
-            
+
                         message = build_summary(service_name, answers)
-            
+
                         try:
                             await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
                             await send_uploaded_files_to_owner(context, answers, service_name)
                             save_to_google_sheets(service_name, answers)
-            
+
                             await update.message.reply_text(
                                 "Спасибо! Ваша заявка отправлена.",
                                 reply_markup=main_menu_keyboard()
                             )
                         except Exception as e:
                             await update.message.reply_text(f"Не удалось отправить заявку: {e}")
-            
+
                         context.user_data.clear()
                         return
-            
+
                     await ask_current_question(update, context)
                     return
-            
+
                 # 3. Если на шаге files пришло что-то не то
                 await update.message.reply_text(
                     "Пришлите фото/файл или напишите: ГОТОВО",
@@ -500,4 +500,3 @@ app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.
 
 print("БОТ ЗАПУЩЕН")
 app.run_polling()
-
