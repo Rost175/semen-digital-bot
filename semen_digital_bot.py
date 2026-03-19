@@ -338,7 +338,10 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ===== ОСНОВНОЙ ОБРАБОТЧИК =====
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    if not update.message:
+        return
+
+    text = update.message.text if update.message.text else ""
 
     print("STEP:", context.user_data.get("question_index"))
     print("FIELD:", context.user_data.get("service_key"))
@@ -352,7 +355,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print("CURRENT FIELD:", field_name)
             print("PHOTO:", bool(update.message.photo))
             print("DOC:", bool(update.message.document))
-            
+
             if field_name == "files":
                 if "answers" not in context.user_data:
                     context.user_data["answers"] = {}
@@ -360,7 +363,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if "files" not in context.user_data["answers"]:
                     context.user_data["answers"]["files"] = []
 
-                if update.message.photo:
+                if update.message.photo or update.message.document:
                     photo = update.message.photo[-1]
                     telegram_file = await context.bot.get_file(photo.file_id)
 
