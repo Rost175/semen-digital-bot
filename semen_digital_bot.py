@@ -346,17 +346,31 @@ async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answe
 
     for item in files:
         try:
-            if item["type"] == "photo" and item.get("link"):
-                await context.bot.send_message(
-                    chat_id=OWNER_CHAT_ID,
-                    text=f"{service_name}: фото\n{item['link']}"
-                )
+            if item["type"] == "photo":
+                if item.get("file_id"):
+                    await context.bot.send_photo(
+                        chat_id=OWNER_CHAT_ID,
+                        photo=item["file_id"],
+                        caption=f"{service_name}: вложение"
+                    )
+                if item.get("link"):
+                    await context.bot.send_message(
+                        chat_id=OWNER_CHAT_ID,
+                        text=f"{service_name}: ссылка на фото\n{item['link']}"
+                    )
 
-            elif item["type"] == "document" and item.get("link"):
-                await context.bot.send_message(
-                    chat_id=OWNER_CHAT_ID,
-                    text=f"{service_name}: документ\n{item['link']}"
-                )
+            elif item["type"] == "document":
+                if item.get("file_id"):
+                    await context.bot.send_document(
+                        chat_id=OWNER_CHAT_ID,
+                        document=item["file_id"],
+                        caption=f"{service_name}: вложение"
+                    )
+                if item.get("link"):
+                    await context.bot.send_message(
+                        chat_id=OWNER_CHAT_ID,
+                        text=f"{service_name}: ссылка на документ\n{item['link']}"
+                    )
 
         except Exception as e:
             print(f"Ошибка отправки файла владельцу: {e}")
@@ -414,6 +428,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     context.user_data["answers"]["files"].append({
                         "type": "photo",
+                        "file_id": photo.file_id,
                         "link": drive_link
                     })
 
@@ -438,6 +453,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     context.user_data["answers"]["files"].append({
                         "type": "document",
+                        "file_id": doc.file_id,
                         "link": drive_link
                     })
 
@@ -558,3 +574,4 @@ app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.
 
 print("БОТ ЗАПУЩЕН")
 app.run_polling()
+
