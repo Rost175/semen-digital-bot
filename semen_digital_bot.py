@@ -496,3 +496,4 @@ app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.
 
 print("БОТ ЗАПУЩЕН")
 app.run_polling()
+
