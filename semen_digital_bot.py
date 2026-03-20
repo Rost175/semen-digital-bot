@@ -125,7 +125,9 @@ def upload_file_to_drive(file_path: str, file_name: str) -> str:
 
     file_metadata = {"name": file_name}
     if GOOGLE_DRIVE_FOLDER_ID:
-        file_metadata["parents"] = [GOOGLE_DRIVE_FOLDER_ID]
+        file_metadata = {
+            "name": file_name
+        }
 
     media = MediaFileUpload(file_path, resumable=True)
 
