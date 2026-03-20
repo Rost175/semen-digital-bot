@@ -389,10 +389,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         "file_id": file_id,
                         "link": drive_link
                     })
-
+                    
                     await update.message.reply_text(
-                        "DEBUG_START_V1",
-                        reply_markup=main_menu_keyboard()
+                        f"DEBUG_FILE_OK type={file_type} count={len(files)}"
                     )
                     return
 
