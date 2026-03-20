@@ -119,29 +119,30 @@ def get_google_credentials() -> Credentials:
     return Credentials.from_service_account_info(creds_dict, scopes=scopes)
 
 
-def upload_file_to_drive(file_path: str, file_name: str) -> str:
+def upload_file_to_drive(file_path, file_name):
     creds = get_google_credentials()
     service = build("drive", "v3", credentials=creds)
 
-    file_metadata = {"name": file_name}
-    if GOOGLE_DRIVE_FOLDER_ID:
-        file_metadata = {
-            "name": file_name
-        }
+    file_metadata = {
+        "name": file_name,
+        "parents": ["1irig9VgMAB_bHjj0nGvaAeDTXtvbss0v"]
+    }
 
     media = MediaFileUpload(file_path, resumable=True)
 
-    created = service.files().create(
+    file = service.files().create(
         body=file_metadata,
         media_body=media,
-        fields="id"
+        fields="id",
+        supportsAllDrives=True
     ).execute()
 
-    file_id = created["id"]
+    file_id = file.get("id")
 
     service.permissions().create(
         fileId=file_id,
-        body={"role": "reader", "type": "anyone"}
+        body={"role": "reader", "type": "anyone"},
+        supportsAllDrives=True
     ).execute()
 
     return f"https://drive.google.com/file/d/{file_id}/view"
