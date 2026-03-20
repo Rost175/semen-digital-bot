@@ -386,7 +386,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await telegram_file.download_to_drive(temp_path)
                     
                     await update.message.reply_text("DEBUG_D upload_start")
-                    drive_link = upload_file_to_drive(temp_path, file_name)
+                    try:
+                        drive_link = upload_file_to_drive(temp_path, file_name)
+                        await update.message.reply_text(f"DEBUG_E upload_done link={drive_link}")
+                    except Exception as e:
+                        await update.message.reply_text(f"ERROR_DRIVE: {str(e)}")
+                        return
                     
                     await update.message.reply_text("DEBUG_E upload_done")
                     os.remove(temp_path)
