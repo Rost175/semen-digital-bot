@@ -375,15 +375,22 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         file_name = doc.file_name if doc.file_name else f"{file_id}.bin"
                         file_type = "document"
 
+                    await update.message.reply_text("DEBUG_A get_file")
                     telegram_file = await context.bot.get_file(file_id)
-
+                    
+                    await update.message.reply_text("DEBUG_B temp_file")
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                         temp_path = tmp.name
-
+                    
+                    await update.message.reply_text("DEBUG_C download_start")
                     await telegram_file.download_to_drive(temp_path)
+                    
+                    await update.message.reply_text("DEBUG_D upload_start")
                     drive_link = upload_file_to_drive(temp_path, file_name)
+                    
+                    await update.message.reply_text("DEBUG_E upload_done")
                     os.remove(temp_path)
-
+                    
                     files.append({
                         "type": file_type,
                         "file_id": file_id,
@@ -394,7 +401,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"DEBUG_FILE_OK type={file_type} count={len(files)}"
                     )
                     return
-
                 # 2. Если пользователь закончил загрузку
                 if text and text.strip().upper() == "ГОТОВО":
                     context.user_data["question_index"] += 1
