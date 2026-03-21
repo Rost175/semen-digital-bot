@@ -134,7 +134,8 @@ def upload_file_to_drive(file_path, file_name):
         body=file_metadata,
         media_body=media,
         fields="id",
-        supportsAllDrives=True
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True
     ).execute()
 
     file_id = file.get("id")
@@ -160,7 +161,7 @@ def save_to_google_sheets(service_name: str, answers: dict):
 
         files_data = answers.get("files", [])
         files_count = len(files_data)
-        files_text = "; ".join([item.get("link", "") for item in files_data if item.get("link")])
+        files_text = "; ".join([item.get("file_id", "") for item in files_data if item.get("file_id")])
 
         row = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -287,31 +288,19 @@ async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answe
 
     for item in files:
         try:
-            if item["type"] == "photo":
-                if item.get("file_id"):
-                    await context.bot.send_photo(
-                        chat_id=OWNER_CHAT_ID,
-                        photo=item["file_id"],
-                        caption=f"{service_name}: вложение"
-                    )
-                if item.get("link"):
-                    await context.bot.send_message(
-                        chat_id=OWNER_CHAT_ID,
-                        text=f"{service_name}: ссылка на фото\n{item['link']}"
-                    )
+            if item["type"] == "photo" and item.get("file_id"):
+                await context.bot.send_photo(
+                    chat_id=OWNER_CHAT_ID,
+                    photo=item["file_id"],
+                    caption=f"{service_name}: вложение"
+                )
 
-            elif item["type"] == "document":
-                if item.get("file_id"):
-                    await context.bot.send_document(
-                        chat_id=OWNER_CHAT_ID,
-                        document=item["file_id"],
-                        caption=f"{service_name}: вложение"
-                    )
-                if item.get("link"):
-                    await context.bot.send_message(
-                        chat_id=OWNER_CHAT_ID,
-                        text=f"{service_name}: ссылка на документ\n{item['link']}"
-                    )
+            elif item["type"] == "document" and item.get("file_id"):
+                await context.bot.send_document(
+                    chat_id=OWNER_CHAT_ID,
+                    document=item["file_id"],
+                    caption=f"{service_name}: вложение"
+                )
 
         except Exception as e:
             print(f"Ошибка отправки файла владельцу: {e}")
@@ -378,37 +367,30 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         file_name = doc.file_name if doc.file_name else f"{file_id}.bin"
                         file_type = "document"
 
-                    await update.message.reply_text("DEBUG_A get_file")
-                    telegram_file = await context.bot.get_file(file_id)
-                    
-                    await update.message.reply_text("DEBUG_B temp_file")
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                        temp_path = tmp.name
-                    
-                    await update.message.reply_text("DEBUG_C download_start")
-                    await telegram_file.download_to_drive(temp_path)
-                    
-                    await update.message.reply_text("DEBUG_D upload_start")
-                    try:
-                        drive_link = upload_file_to_drive(temp_path, file_name)
-                        await update.message.reply_text(f"DEBUG_E upload_done link={drive_link}")
-                    except Exception as e:
-                        await update.message.reply_text(f"ERROR_DRIVE: {str(e)}")
-                        return
-                    
+                    files.append({
+                        "type": file_type,
+                        "file_id": file_id
+                    })
+
+                    await update.message.reply_text(
+                        f"Файл принят ✅ Сейчас вложений: {len(files)}"
+                    )
+                    return
+
                     await update.message.reply_text("DEBUG_E upload_done")
                     os.remove(temp_path)
-                    
+
                     files.append({
                         "type": file_type,
                         "file_id": file_id,
                         "link": drive_link
                     })
-                    
+
                     await update.message.reply_text(
                         f"DEBUG_FILE_OK type={file_type} count={len(files)}"
                     )
                     return
+
                 # 2. Если пользователь закончил загрузку
                 if text and text.strip().upper() == "ГОТОВО":
                     context.user_data["question_index"] += 1
@@ -515,3 +497,4 @@ app.add_handler(MessageHandler((filters.TEXT | filters.PHOTO | filters.Document.
 
 print("БОТ ЗАПУЩЕН")
 app.run_polling()
+
