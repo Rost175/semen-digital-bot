@@ -1,16 +1,5 @@
-from datetime import datetime
-
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.constants import ParseMode
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-
-import gspread
-from google.oauth2.service_account import Credentials
-
-# ===== НАСТРОЙКИ =====
 import os
 import json
-import tempfile
 from datetime import datetime
 
 from telegram import Update, ReplyKeyboardMarkup
@@ -24,8 +13,6 @@ from telegram.ext import (
 
 import gspread
 from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
 
 
 # ===== НАСТРОЙКИ =====
@@ -35,7 +22,6 @@ OWNER_CHAT_ID = int(os.getenv("OWNER_CHAT_ID", "604010998"))
 GOOGLE_SHEETS_ENABLED = os.getenv("GOOGLE_SHEETS_ENABLED", "false").lower() == "true"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
-GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
 
 BTN_BACK = "⬅️ Назад"
 BTN_MENU = "🏠 Главное меню"
@@ -105,48 +91,17 @@ FORMS = {
 }
 
 
-# ===== GOOGLE =====
+# ===== GOOGLE SHEETS =====
 def get_google_credentials() -> Credentials:
     if not GOOGLE_CREDENTIALS_JSON:
         raise ValueError("GOOGLE_CREDENTIALS_JSON не задан")
 
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
     ]
 
     creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
     return Credentials.from_service_account_info(creds_dict, scopes=scopes)
-
-
-def upload_file_to_drive(file_path, file_name):
-    creds = get_google_credentials()
-    service = build("drive", "v3", credentials=creds)
-
-    file_metadata = {
-        "name": file_name,
-        "parents": ["1irig9VgMAB_bHjj0nGvaAeDTXtvbss0v"]
-    }
-
-    media = MediaFileUpload(file_path, resumable=True)
-
-    file = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields="id",
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True
-    ).execute()
-
-    file_id = file.get("id")
-
-    service.permissions().create(
-        fileId=file_id,
-        body={"role": "reader", "type": "anyone"},
-        supportsAllDrives=True
-    ).execute()
-
-    return f"https://drive.google.com/file/d/{file_id}/view"
 
 
 def save_to_google_sheets(service_name: str, answers: dict):
@@ -161,7 +116,7 @@ def save_to_google_sheets(service_name: str, answers: dict):
 
         files_data = answers.get("files", [])
         files_count = len(files_data)
-        files_text = "; ".join([item.get("link", "") for item in files_data if item.get("link")])
+        files_text = "; ".join([item.get("file_id", "") for item in files_data if item.get("file_id")])
 
         row = [
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -197,10 +152,7 @@ def save_to_google_sheets(service_name: str, answers: dict):
 
 # ===== ВСПОМОГАТЕЛЬНОЕ =====
 def nav_keyboard():
-    return ReplyKeyboardMarkup(
-        [[BTN_BACK, BTN_MENU]],
-        resize_keyboard=True
-    )
+    return ReplyKeyboardMarkup([[BTN_BACK, BTN_MENU]], resize_keyboard=True)
 
 
 def main_menu_keyboard():
@@ -288,31 +240,19 @@ async def send_uploaded_files_to_owner(context: ContextTypes.DEFAULT_TYPE, answe
 
     for item in files:
         try:
-            if item["type"] == "photo":
-                if item.get("file_id"):
-                    await context.bot.send_photo(
-                        chat_id=OWNER_CHAT_ID,
-                        photo=item["file_id"],
-                        caption=f"{service_name}: вложение"
-                    )
-                if item.get("link"):
-                    await context.bot.send_message(
-                        chat_id=OWNER_CHAT_ID,
-                        text=f"{service_name}: ссылка на фото\n{item['link']}"
-                    )
+            if item["type"] == "photo" and item.get("file_id"):
+                await context.bot.send_photo(
+                    chat_id=OWNER_CHAT_ID,
+                    photo=item["file_id"],
+                    caption=f"{service_name}: вложение"
+                )
 
-            elif item["type"] == "document":
-                if item.get("file_id"):
-                    await context.bot.send_document(
-                        chat_id=OWNER_CHAT_ID,
-                        document=item["file_id"],
-                        caption=f"{service_name}: вложение"
-                    )
-                if item.get("link"):
-                    await context.bot.send_message(
-                        chat_id=OWNER_CHAT_ID,
-                        text=f"{service_name}: ссылка на документ\n{item['link']}"
-                    )
+            elif item["type"] == "document" and item.get("file_id"):
+                await context.bot.send_document(
+                    chat_id=OWNER_CHAT_ID,
+                    document=item["file_id"],
+                    caption=f"{service_name}: вложение"
+                )
 
         except Exception as e:
             print(f"Ошибка отправки файла владельцу: {e}")
@@ -347,71 +287,43 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = update.message.text if update.message.text else ""
 
-    print("DEBUG_1 HANDLE CALLED")
-    print("DEBUG_2 TEXT:", text)
-    print("DEBUG_3 PHOTO:", bool(update.message.photo))
-    print("DEBUG_4 DOC:", bool(update.message.document))
-
     if "service_key" in context.user_data:
         service_key = context.user_data["service_key"]
         question_index = context.user_data.get("question_index", 0)
 
         if question_index < len(FORMS[service_key]["fields"]):
             field_name, _ = FORMS[service_key]["fields"][question_index]
-            print("CURRENT FIELD:", field_name)
-            print("PHOTO:", bool(update.message.photo))
-            print("DOC:", bool(update.message.document))
 
             if field_name == "files":
                 answers = context.user_data.setdefault("answers", {})
                 files = answers.setdefault("files", [])
 
-                # 1. Сначала ловим фото/документ
-                if update.message.photo or update.message.document:
-                    if update.message.photo:
-                        photo = update.message.photo[-1]
-                        file_id = photo.file_id
-                        file_name = f"{file_id}.jpg"
-                        file_type = "photo"
-                    else:
-                        doc = update.message.document
-                        file_id = doc.file_id
-                        file_name = doc.file_name if doc.file_name else f"{file_id}.bin"
-                        file_type = "document"
-
-                    await update.message.reply_text("DEBUG_A get_file")
-                    telegram_file = await context.bot.get_file(file_id)
-
-                    await update.message.reply_text("DEBUG_B temp_file")
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                        temp_path = tmp.name
-
-                    await update.message.reply_text("DEBUG_C download_start")
-                    await telegram_file.download_to_drive(temp_path)
-
-                    await update.message.reply_text("DEBUG_D upload_start")
-                    try:
-                        drive_link = upload_file_to_drive(temp_path, file_name)
-                        await update.message.reply_text(f"DEBUG_E upload_done link={drive_link}")
-                    except Exception as e:
-                        await update.message.reply_text(f"ERROR_DRIVE: {str(e)}")
-                        return
-
-                    await update.message.reply_text("DEBUG_E upload_done")
-                    os.remove(temp_path)
-
+                if update.message.photo:
+                    photo = update.message.photo[-1]
                     files.append({
-                        "type": file_type,
-                        "file_id": file_id,
-                        "link": drive_link
+                        "type": "photo",
+                        "file_id": photo.file_id
                     })
 
                     await update.message.reply_text(
-                        f"DEBUG_FILE_OK type={file_type} count={len(files)}"
+                        f"Файл принят ✅ Сейчас вложений: {len(files)}\n"
+                        f"Можете отправить ещё или написать: ГОТОВО"
                     )
                     return
 
-                # 2. Если пользователь закончил загрузку
+                if update.message.document:
+                    doc = update.message.document
+                    files.append({
+                        "type": "document",
+                        "file_id": doc.file_id
+                    })
+
+                    await update.message.reply_text(
+                        f"Файл принят ✅ Сейчас вложений: {len(files)}\n"
+                        f"Можете отправить ещё или написать: ГОТОВО"
+                    )
+                    return
+
                 if text and text.strip().upper() == "ГОТОВО":
                     context.user_data["question_index"] += 1
 
@@ -439,7 +351,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await ask_current_question(update, context)
                     return
 
-                # 3. Если на шаге files пришло что-то не то
                 await update.message.reply_text(
                     "Пришлите фото/файл или напишите: ГОТОВО",
                     reply_markup=nav_keyboard()
