@@ -1,4 +1,5 @@
 import os
+import io
 import json
 import logging
 from datetime import datetime
@@ -6,6 +7,8 @@ from typing import Dict, List, Any
 
 import gspread
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
 
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -26,6 +29,7 @@ OWNER_CHAT_ID = int(os.getenv("OWNER_CHAT_ID", "604010998"))
 GOOGLE_SHEETS_ENABLED = os.getenv("GOOGLE_SHEETS_ENABLED", "false").lower() == "true"
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
+GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
 
 BTN_BACK = "⬅️ Назад"
 BTN_MENU = "🏠 Главное меню"
@@ -95,7 +99,6 @@ FORMS = {
     },
 }
 
-# Порядок колонок в Google Sheets
 SHEET_HEADERS = [
     "Дата",
     "Услуга",
@@ -121,6 +124,7 @@ SHEET_HEADERS = [
     "Типы файлов",
     "Имена файлов",
     "file_id / photo_id",
+    "Ссылки Google Drive",
     "Username Telegram",
     "Telegram user_id",
 ]
@@ -131,9 +135,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 # =========================================================
-# GOOGLE SHEETS
+# GOOGLE
 # =========================================================
 
 def validate_env() -> None:
@@ -146,14 +149,13 @@ def validate_env() -> None:
         if not GOOGLE_CREDENTIALS_JSON:
             raise ValueError("GOOGLE_CREDENTIALS_JSON не задан")
 
-
 def get_google_credentials() -> Credentials:
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
     ]
     creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
     return Credentials.from_service_account_info(creds_dict, scopes=scopes)
-
 
 def get_sheet():
     creds = get_google_credentials()
@@ -162,6 +164,12 @@ def get_sheet():
     sheet = spreadsheet.sheet1
     return sheet
 
+def column_letter(n: int) -> str:
+    result = ""
+    while n > 0:
+        n, remainder = divmod(n - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
 
 def ensure_sheet_headers() -> None:
     if not GOOGLE_SHEETS_ENABLED:
@@ -174,46 +182,66 @@ def ensure_sheet_headers() -> None:
             if not first_row:
                 sheet.append_row(SHEET_HEADERS)
             else:
-                # если в таблице уже что-то есть, просто обновим первую строку
                 end_col = len(SHEET_HEADERS)
                 sheet.update(f"A1:{column_letter(end_col)}1", [SHEET_HEADERS])
         logger.info("Заголовки Google Sheets проверены")
     except Exception as e:
         logger.exception("Ошибка при проверке заголовков Google Sheets: %s", e)
 
+def upload_telegram_file_to_drive(
+    bot_file_bytes: bytes,
+    file_name: str,
+    mime_type: str = "application/octet-stream"
+) -> Dict[str, str]:
+    """
+    Загружает файл в Google Drive в указанную папку.
+    Возвращает словарь: {"id": "...", "link": "..."}
+    """
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        raise ValueError("GOOGLE_DRIVE_FOLDER_ID не задан")
 
-def column_letter(n: int) -> str:
-    result = ""
-    while n > 0:
-        n, remainder = divmod(n - 1, 26)
-        result = chr(65 + remainder) + result
-    return result
+    creds = get_google_credentials()
+    drive_service = build("drive", "v3", credentials=creds)
 
+    file_metadata = {
+        "name": file_name,
+        "parents": [GOOGLE_DRIVE_FOLDER_ID],
+    }
+
+    file_stream = io.BytesIO(bot_file_bytes)
+    media = MediaIoBaseUpload(file_stream, mimetype=mime_type, resumable=False)
+
+    created_file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id, webViewLink"
+    ).execute()
+
+    return {
+        "id": created_file.get("id", ""),
+        "link": created_file.get("webViewLink", ""),
+    }
 
 def serialize_files_for_sheet(files_data: List[Dict[str, Any]]):
     files_count = len(files_data)
     file_types = []
     file_names = []
     file_ids = []
+    drive_links = []
 
     for item in files_data:
         file_types.append(item.get("type", ""))
-
-        if item.get("file_name"):
-            file_names.append(item["file_name"])
-        else:
-            file_names.append("")
-
-        if item.get("file_id"):
-            file_ids.append(item["file_id"])
+        file_names.append(item.get("file_name", ""))
+        file_ids.append(item.get("file_id", ""))
+        drive_links.append(item.get("drive_link", ""))
 
     return (
         files_count,
         "; ".join(file_types),
         "; ".join(file_names),
         "; ".join(file_ids),
+        "; ".join([x for x in drive_links if x]),
     )
-
 
 def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> None:
     if not GOOGLE_SHEETS_ENABLED:
@@ -224,7 +252,7 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
         sheet = get_sheet()
 
         files_data = answers.get("files", [])
-        files_count, file_types_text, file_names_text, file_ids_text = serialize_files_for_sheet(files_data)
+        files_count, file_types_text, file_names_text, file_ids_text, drive_links_text = serialize_files_for_sheet(files_data)
 
         tg_username = update.effective_user.username if update.effective_user else ""
         tg_user_id = str(update.effective_user.id) if update.effective_user else ""
@@ -254,6 +282,7 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
             file_types_text,
             file_names_text,
             file_ids_text,
+            drive_links_text,
             f"@{tg_username}" if tg_username else "",
             tg_user_id,
         ]
@@ -264,7 +293,6 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
     except Exception as e:
         logger.exception("Ошибка записи в Google Sheets: %s", e)
 
-
 # =========================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =========================================================
@@ -272,16 +300,13 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
 def nav_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup([[BTN_BACK, BTN_MENU]], resize_keyboard=True)
 
-
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(MAIN_MENU, resize_keyboard=True)
-
 
 def get_current_field(context: ContextTypes.DEFAULT_TYPE):
     service_key = context.user_data["service_key"]
     question_index = context.user_data["question_index"]
     return FORMS[service_key]["fields"][question_index]
-
 
 async def ask_current_question(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     service_key = context.user_data["service_key"]
@@ -289,7 +314,6 @@ async def ask_current_question(update: Update, context: ContextTypes.DEFAULT_TYP
 
     _, question_text = FORMS[service_key]["fields"][question_index]
     await update.message.reply_text(question_text, reply_markup=nav_keyboard())
-
 
 def build_summary(service_name: str, answers: dict, update: Update) -> str:
     labels = {
@@ -358,7 +382,6 @@ def build_summary(service_name: str, answers: dict, update: Update) -> str:
 
     return "\n".join(lines)
 
-
 async def send_uploaded_files_to_owner(
     context: ContextTypes.DEFAULT_TYPE,
     answers: dict,
@@ -373,6 +396,7 @@ async def send_uploaded_files_to_owner(
         try:
             caption = f"{service_name}: вложение {index}"
 
+            # 1. Отправка владельцу в Telegram
             if item["type"] == "photo" and item.get("file_id"):
                 await context.bot.send_photo(
                     chat_id=OWNER_CHAT_ID,
@@ -387,23 +411,26 @@ async def send_uploaded_files_to_owner(
                     caption=caption
                 )
 
-        except Exception as e:
-            logger.exception("Ошибка отправки файла владельцу: %s", e)
+            # 2. Загрузка в Google Drive
+            if GOOGLE_DRIVE_FOLDER_ID:
+                telegram_file = await context.bot.get_file(item["file_id"])
+                file_bytes = await telegram_file.download_as_bytearray()
 
+                uploaded = upload_telegram_file_to_drive(
+                    bot_file_bytes=bytes(file_bytes),
+                    file_name=item.get("file_name") or f"file_{index}",
+                    mime_type=item.get("mime_type") or "application/octet-stream",
+                )
+
+                item["drive_id"] = uploaded.get("id", "")
+                item["drive_link"] = uploaded.get("link", "")
+
+        except Exception as e:
+            logger.exception("Ошибка отправки/загрузки файла: %s", e)
 
 async def go_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.clear()
     await update.message.reply_text("Главное меню:", reply_markup=main_menu_keyboard())
-
-
-def clear_current_answer(context: ContextTypes.DEFAULT_TYPE) -> None:
-    service_key = context.user_data["service_key"]
-    question_index = context.user_data["question_index"]
-
-    if question_index < len(FORMS[service_key]["fields"]):
-        field_name, _ = FORMS[service_key]["fields"][question_index]
-        context.user_data.setdefault("answers", {}).pop(field_name, None)
-
 
 # =========================================================
 # КОМАНДЫ
@@ -416,7 +443,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=main_menu_keyboard()
     )
 
-
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         await context.bot.send_message(OWNER_CHAT_ID, "Тестовое сообщение от бота.")
@@ -424,7 +450,6 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception:
         logger.exception("Ошибка отправки тестового сообщения")
         await update.message.reply_text("Не удалось отправить тестовое сообщение.")
-
 
 # =========================================================
 # ОБРАБОТКА ФАЙЛОВ НА ШАГЕ files
@@ -449,7 +474,6 @@ async def process_files_step(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     text = update.message.text.strip() if update.message.text else ""
 
-    # Пользователь завершил загрузку файлов
     if text.upper() == BTN_DONE:
         context.user_data["question_index"] += 1
 
@@ -457,11 +481,12 @@ async def process_files_step(update: Update, context: ContextTypes.DEFAULT_TYPE)
             service_name = context.user_data["service_name"]
             answers = context.user_data["answers"]
 
-            message = build_summary(service_name, answers, update)
-
             try:
-                await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
                 await send_uploaded_files_to_owner(context, answers, service_name)
+
+                message = build_summary(service_name, answers, update)
+                await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
+
                 save_to_google_sheets(service_name, answers, update)
 
                 await update.message.reply_text(
@@ -480,13 +505,15 @@ async def process_files_step(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await ask_current_question(update, context)
         return True
 
-    # Фото
     if update.message.photo:
         photo = update.message.photo[-1]
         files.append({
             "type": "photo",
             "file_id": photo.file_id,
-            "file_name": "",
+            "file_name": f"photo_{photo.file_unique_id}.jpg",
+            "mime_type": "image/jpeg",
+            "drive_link": "",
+            "drive_id": "",
         })
 
         await update.message.reply_text(
@@ -495,14 +522,15 @@ async def process_files_step(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return True
 
-    # Документ
     if update.message.document:
         doc = update.message.document
         files.append({
             "type": "document",
             "file_id": doc.file_id,
-            "file_name": doc.file_name or "",
-            "mime_type": doc.mime_type or "",
+            "file_name": doc.file_name or f"document_{doc.file_unique_id}",
+            "mime_type": doc.mime_type or "application/octet-stream",
+            "drive_link": "",
+            "drive_id": "",
         })
 
         await update.message.reply_text(
@@ -511,13 +539,11 @@ async def process_files_step(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return True
 
-    # Любой другой текст
     await update.message.reply_text(
         "Пришлите фото/файл или напишите: ГОТОВО",
         reply_markup=nav_keyboard()
     )
     return True
-
 
 # =========================================================
 # ОСНОВНОЙ ОБРАБОТЧИК
@@ -529,12 +555,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     text = update.message.text.strip() if update.message.text else ""
 
-    # 1. Главное меню
     if text == BTN_MENU:
         await go_main_menu(update, context)
         return
 
-    # 2. Выбор услуги из меню
     if text in FORMS:
         context.user_data.clear()
         context.user_data["service_key"] = text
@@ -544,7 +568,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await ask_current_question(update, context)
         return
 
-    # 3. Если услуга не выбрана
     if "service_key" not in context.user_data:
         await update.message.reply_text(
             "Пожалуйста, выберите услугу кнопкой ниже.",
@@ -552,7 +575,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # 4. Назад
     if text == BTN_BACK:
         if context.user_data["question_index"] > 0:
             context.user_data["question_index"] -= 1
@@ -563,17 +585,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await ask_current_question(update, context)
         return
 
-    # 5. Специальная обработка шага files
     processed = await process_files_step(update, context)
     if processed:
         return
 
-    # 6. Обычные текстовые вопросы
     service_key = context.user_data["service_key"]
     question_index = context.user_data["question_index"]
     field_name, _ = FORMS[service_key]["fields"][question_index]
 
-    # На обычных шагах принимаем только текст
     if not update.message.text:
         await update.message.reply_text(
             "Пожалуйста, отправьте текстовый ответ.",
@@ -584,16 +603,16 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data["answers"][field_name] = text
     context.user_data["question_index"] += 1
 
-    # 7. Завершение анкеты
     if context.user_data["question_index"] >= len(FORMS[service_key]["fields"]):
         service_name = context.user_data["service_name"]
         answers = context.user_data["answers"]
 
-        message = build_summary(service_name, answers, update)
-
         try:
-            await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
             await send_uploaded_files_to_owner(context, answers, service_name)
+
+            message = build_summary(service_name, answers, update)
+            await context.bot.send_message(chat_id=OWNER_CHAT_ID, text=message)
+
             save_to_google_sheets(service_name, answers, update)
 
             await update.message.reply_text(
@@ -610,7 +629,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await ask_current_question(update, context)
-
 
 # =========================================================
 # ЗАПУСК
@@ -636,6 +654,8 @@ def main() -> None:
     logger.info("БОТ ЗАПУЩЕН")
     app.run_polling()
 
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
