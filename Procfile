@@ -1,1 +1,1 @@
-worker: python semen_digital_bot.py
+worker: python3.11 semen_digital_bot.py
