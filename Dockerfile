@@ -7,8 +7,10 @@ ENV PYTHONUNBUFFERED=1
 
 COPY requirements.txt /app/requirements.txt
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r /app/requirements.txt
+RUN pip uninstall -y telegram && \
+    pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir python-telegram-bot==22.7 && \
+    pip install --no-cache-dir -r requirements.txt
 
 COPY . /app
 
