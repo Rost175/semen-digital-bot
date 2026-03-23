@@ -248,50 +248,58 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
         logger.info("Google Sheets отключен")
         return
 
-    try:
-        sheet = get_sheet()
+    sheet = get_sheet()
 
-        files_data = answers.get("files", [])
-        files_count, file_types_text, file_names_text, file_ids_text, drive_links_text = serialize_files_for_sheet(files_data)
+    first_row = sheet.row_values(1)
+    if first_row != SHEET_HEADERS:
+        if not first_row:
+            sheet.append_row(SHEET_HEADERS, value_input_option="USER_ENTERED")
+        else:
+            end_col = len(SHEET_HEADERS)
+            sheet.update(f"A1:{column_letter(end_col)}1", [SHEET_HEADERS])
 
-        tg_username = update.effective_user.username if update.effective_user else ""
-        tg_user_id = str(update.effective_user.id) if update.effective_user else ""
+    files_data = answers.get("files", [])
+    files_count, file_types_text, file_names_text, file_ids_text, drive_links_text = serialize_files_for_sheet(files_data)
 
-        row = [
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            service_name,
-            answers.get("name", ""),
-            answers.get("contact", ""),
-            answers.get("site_type", ""),
-            answers.get("business", ""),
-            answers.get("audience", ""),
-            answers.get("goal", ""),
-            answers.get("examples", ""),
-            answers.get("texts", ""),
-            answers.get("market", ""),
-            answers.get("product", ""),
-            answers.get("count", ""),
-            answers.get("photos", ""),
-            answers.get("tz", ""),
-            answers.get("object", ""),
-            answers.get("style", ""),
-            answers.get("use", ""),
-            answers.get("timeline", ""),
-            answers.get("comment", ""),
-            files_count,
-            file_types_text,
-            file_names_text,
-            file_ids_text,
-            drive_links_text,
-            f"@{tg_username}" if tg_username else "",
-            tg_user_id,
-        ]
+    tg_username = update.effective_user.username if update.effective_user else ""
+    tg_user_id = str(update.effective_user.id) if update.effective_user else ""
 
-        sheet.append_row(row, value_input_option="USER_ENTERED")
-        logger.info("Запись в Google Sheets выполнена")
+    row = [
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        service_name,
+        answers.get("name", ""),
+        answers.get("contact", ""),
+        answers.get("site_type", ""),
+        answers.get("business", ""),
+        answers.get("audience", ""),
+        answers.get("goal", ""),
+        answers.get("examples", ""),
+        answers.get("texts", ""),
+        answers.get("market", ""),
+        answers.get("product", ""),
+        answers.get("count", ""),
+        answers.get("photos", ""),
+        answers.get("tz", ""),
+        answers.get("object", ""),
+        answers.get("style", ""),
+        answers.get("use", ""),
+        answers.get("timeline", ""),
+        answers.get("comment", ""),
+        files_count,
+        file_types_text,
+        file_names_text,
+        file_ids_text,
+        drive_links_text,
+        f"@{tg_username}" if tg_username else "",
+        tg_user_id,
+    ]
 
-    except Exception as e:
-        logger.exception("Ошибка записи в Google Sheets: %s", e)
+    logger.info("HEADERS LENGTH: %s", len(SHEET_HEADERS))
+    logger.info("ROW LENGTH: %s", len(row))
+    logger.info("ROW DATA: %s", row)
+
+    sheet.append_row(row, value_input_option="USER_ENTERED")
+    logger.info("Строка успешно добавлена в Google Sheets")
 
 # =========================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
