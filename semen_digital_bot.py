@@ -242,6 +242,17 @@ def serialize_files_for_sheet(files_data: List[Dict[str, Any]]):
         "; ".join(file_ids),
         "; ".join([x for x in drive_links if x]),
     )
+def safe_cell(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(str(x) for x in value if x is not None)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
 
 def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> None:
     if not GOOGLE_SHEETS_ENABLED:
@@ -262,9 +273,9 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
     files_count, file_types_text, file_names_text, file_ids_text, drive_links_text = serialize_files_for_sheet(files_data)
 
     tg_username = update.effective_user.username if update.effective_user else ""
-    tg_user_id = str(update.effective_user.id) if update.effective_user else ""
+    tg_user_id = update.effective_user.id if update.effective_user else ""
 
-    row = [
+    raw_row = [
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         service_name,
         answers.get("name", ""),
@@ -294,13 +305,24 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
         tg_user_id,
     ]
 
+    row = [safe_cell(v) for v in raw_row]
+
     logger.info("HEADERS LENGTH: %s", len(SHEET_HEADERS))
     logger.info("ROW LENGTH: %s", len(row))
     logger.info("ROW DATA: %s", row)
+    logger.info("Spreadsheet: %s | Worksheet: %s", sheet.spreadsheet.title, sheet.title)
 
-    sheet.append_row(row, value_input_option="USER_ENTERED")
-    logger.info("Строка успешно добавлена в Google Sheets")
-
+    try:
+        sheet.append_row(
+            row,
+            value_input_option="USER_ENTERED",
+            insert_data_option="INSERT_ROWS",
+        )
+        logger.info("Строка успешно добавлена в Google Sheets")
+    except Exception as e:
+        logger.exception("Ошибка append_row в Google Sheets: %s", e)
+        raise
+    
 # =========================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =========================================================
