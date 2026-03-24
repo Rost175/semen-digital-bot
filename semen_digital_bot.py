@@ -272,10 +272,16 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
 
     files_data = answers.get("files", [])
     files_count, file_types_text, file_names_text, file_ids_text, drive_links_text = serialize_files_for_sheet(files_data)
-
+    
+    getphoto_command = ""
+    if file_ids_text:
+        first_file_id = file_ids_text.split("; ")[0].strip()
+        if first_file_id:
+            getphoto_command = f"/getphoto {first_file_id}"
+    
     tg_username = update.effective_user.username if update.effective_user else ""
     tg_user_id = update.effective_user.id if update.effective_user else ""
-
+    
     raw_row = [
         datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M:%S"),
         service_name,
@@ -301,6 +307,7 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
         file_types_text,
         file_names_text,
         file_ids_text,
+        getphoto_command,
         drive_links_text,
         f"@{tg_username}" if tg_username else "",
         tg_user_id,
