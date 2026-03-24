@@ -481,6 +481,49 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.exception("Ошибка отправки тестового сообщения")
         await update.message.reply_text("Не удалось отправить тестовое сообщение.")
 
+async def getphoto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "Пришлите команду так:\n/getphoto <photo_id>"
+            )
+            return
+
+        photo_id = " ".join(context.args).strip()
+
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=photo_id,
+            caption="Фото по photo_id"
+        )
+
+    except Exception as e:
+        logger.exception("Ошибка команды /getphoto: %s", e)
+        await update.message.reply_text(
+            "Не удалось получить фото. Проверьте photo_id."
+        )
+
+async def getfile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        if not context.args:
+            await update.message.reply_text(
+                "Пришлите команду так:\n/getfile <file_id>"
+            )
+            return
+
+        file_id = " ".join(context.args).strip()
+
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=file_id,
+            caption="Файл по file_id"
+        )
+
+    except Exception as e:
+        logger.exception("Ошибка команды /getfile: %s", e)
+        await update.message.reply_text(
+            "Не удалось получить файл. Проверьте file_id."
+        )
 # =========================================================
 # ОБРАБОТКА ФАЙЛОВ НА ШАГЕ files
 # =========================================================
@@ -674,6 +717,8 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test", test))
+    app.add_handler(CommandHandler("getphoto", getphoto))
+    app.add_handler(CommandHandler("getfile", getfile))
     app.add_handler(
         MessageHandler(
             (filters.TEXT | filters.PHOTO | filters.Document.ALL) & ~filters.COMMAND,
