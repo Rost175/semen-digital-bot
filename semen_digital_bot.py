@@ -276,7 +276,7 @@ def save_to_google_sheets(service_name: str, answers: dict, update: Update) -> N
     tg_user_id = update.effective_user.id if update.effective_user else ""
 
     raw_row = [
-        datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+        datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M:%S"),
         service_name,
         answers.get("name", ""),
         answers.get("contact", ""),
