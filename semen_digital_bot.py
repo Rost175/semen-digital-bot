@@ -161,7 +161,7 @@ def get_sheet():
     creds = get_google_credentials()
     client = gspread.authorize(creds)
     spreadsheet = client.open_by_key(GOOGLE_SHEET_ID)
-    sheet = spreadsheet.sheet1
+    sheet = spreadsheet.worksheet("Лист1")
     return sheet
 
 def column_letter(n: int) -> str:
